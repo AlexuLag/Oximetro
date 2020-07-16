@@ -5,8 +5,7 @@
 #include <PubSubClient.h>
 #include <wificlientsecure.h>
 #include "MAX30100_PulseOximeter.h"
-#include <Wire.h>
-#include "Wire.h"
+
 #include "Adafruit_GFX.h"
 #include "OakOLED.h"
 #include "Oximetro.Config.h"
@@ -20,9 +19,11 @@
 uint32_t tsLastReport = 0;
 OakOLED oled;
 PulseOximeter pox;
-float BPM, SpO2;
 
+ float heartRate;
+ uint8_t spO2;
 
+//imagen en display
 const unsigned char bitmap [] PROGMEM =
 {
   0x00, 0x00, 0x00, 0x00, 0x01, 0x80, 0x18, 0x00, 0x0f, 0xe0, 0x7f, 0x00, 0x3f, 0xf9, 0xff, 0xc0,
@@ -35,12 +36,14 @@ const unsigned char bitmap [] PROGMEM =
 };
 
 
-
+//cuando detecta un objeto o beat en el sensor
 void onBeatDetected()
-{
-   Serial.println("Beat!");
+{  
   oled.drawBitmap( 60, 20, bitmap, 28, 28, 1);
   oled.display();
+
+ 
+   
 }
 
 void setup() {
@@ -51,18 +54,22 @@ void setup() {
   oled.setTextColor(1);
   oled.setCursor(0, 0);
   oled.println("Cargando parametros de conexion...");
+  Serial.println("Cargando parametros de conexion...");
   oled.display();
   InicializaSistema();
+  InicializaEnvio();  
+    
+
 
   
   if (!pox.begin())
   {
-    Serial.println("FALLO");
+    Serial.println("Fallo inicializacion del sensor comuniquese con soporte");
     oled.clearDisplay();
     oled.setTextSize(2);
     oled.setTextColor(1);
     oled.setCursor(0, 0);
-    oled.println("FALLO");
+    oled.println("Fallo inicializacion del sensor comuniquese con soporte");
     oled.display();
     for (;;);
   }
@@ -72,21 +79,35 @@ void setup() {
     oled.setTextSize(2);
     oled.setTextColor(2);
     oled.setCursor(0, 0);
-    oled.display();   
+    oled.display(); 
+
+     Serial.println("Max iniciado"); 
+    pox.setIRLedCurrent(MAX30100_LED_CURR_7_6MA); 
     pox.setOnBeatDetectedCallback(onBeatDetected);
   }
   
   }
 
+
+
 void loop()
 {
+  
 
   pox.update();
+ 
   if (millis() - tsLastReport > REPORTING_PERIOD_MS)
   {
-  Serial.print("Heart rate:");
+     heartRate=0;
+     spO2=0; 
+
+
+   heartRate= pox.getHeartRate();
+   spO2= pox.getSpO2();
+
+    Serial.print("Ritmo Cardiaco:");
     Serial.print(pox.getHeartRate());
-    Serial.print("bpm / SpO2:");
+    Serial.print("bpm / Sat. Oxigeno:");
     Serial.print(pox.getSpO2());
     Serial.println("%");
 
@@ -94,12 +115,12 @@ void loop()
     oled.setTextSize(1);
     oled.setTextColor(1);
     oled.setCursor(0, 16);
-    oled.println(pox.getHeartRate());
+    oled.println(heartRate);
 
     oled.setTextSize(1);
     oled.setTextColor(1);
     oled.setCursor(0, 0);
-    oled.println("BPM");
+    oled.println("PPM");
 
     oled.setTextSize(1);
     oled.setTextColor(1);
@@ -109,10 +130,20 @@ void loop()
     oled.setTextSize(1);
     oled.setTextColor(1);
     oled.setCursor(0, 45);
-    oled.println(pox.getSpO2());
+    oled.println(spO2);
     oled.display();
-
     tsLastReport = millis();
+
+      if(heartRate!=0 && spO2!=0)
+      EnviarLectura( String(heartRate,2), String(spO2));
+  heartRate=0;
+  spO2=0; 
+
+
+
+   
   }
+ 
+ 
 
 }
