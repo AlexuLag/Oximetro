@@ -19,14 +19,14 @@ void reconnect(String estado){
 
   while (!client.connected()) {
     Serial.println("Intentando Conexión MQTT");    
-    String clientId = "Oximetria_1";
+    String clientId = mqtt_user;
+    String inboundstr="devices/"+clientId+"/messages/devicebound/#";
     //clientId = clientId + String(random(0xffff), HEX);
-
-    mqtt_user=mqtt_server+"/"+mqtt_user;// "OximetriaHub.azure-devices.net/Oximetria_1";
+    clientId=mqtt_user;
+    mqtt_user=mqtt_server+"/"+mqtt_user;
     if (client.connect(clientId.c_str(),mqtt_user.c_str(),mqtt_pass.c_str())) {
-      Serial.println("Conexión a MQTT exitosa!!!");
-      //client.publish("devices/Oximetria_1/messages/events/InicioLectura",estado.c_str());
-      client.subscribe("devices/Oximetria_1/messages/devicebound/#");
+      Serial.println("Conexión a MQTT exitosa!!!");     
+      client.subscribe(inboundstr.c_str());
     }else{
       Serial.println("Falló la conexión ");
       Serial.println(client.state());
