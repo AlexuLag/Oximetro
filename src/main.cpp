@@ -134,7 +134,7 @@ void loop()
     oled.display();
     tsLastReport = millis();
 
-      if(heartRate!=0 && spO2!=0)
+     if(heartRate!=0 && spO2!=0)
       EnviarLectura( String(heartRate,2), String(spO2));
   heartRate=0;
   spO2=0; 

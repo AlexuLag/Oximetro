@@ -11,7 +11,7 @@
 
 WiFiClientSecure  espClient;
 PubSubClient client(espClient);
-
+String clientId; 
 
 
 //cuando el sistema no puede establecer conexion con el wifi
@@ -19,13 +19,30 @@ void reconnect(String estado){
 
   while (!client.connected()) {
     Serial.println("Intentando Conexión MQTT");    
+       
     String clientId = mqtt_user;
     String inboundstr="devices/"+clientId+"/messages/devicebound/#";
-    //clientId = clientId + String(random(0xffff), HEX);
-    clientId=mqtt_user;
-    mqtt_user=mqtt_server+"/"+mqtt_user;
-    if (client.connect(clientId.c_str(),mqtt_user.c_str(),mqtt_pass.c_str())) {
-      Serial.println("Conexión a MQTT exitosa!!!");     
+    String outBoundStr ="devices/"+mqtt_user+"/messages/events/Oximetria";
+    String  urlUser = mqtt_server+"/"+mqtt_user;
+
+
+    //mqtt_pass="SharedAccessSignature sr=KieDevices.azure-devices.net%2Fdevices%2FOximetria_1&sig=HpgDbTnC7ys3hwF2XD4BzbbVNexgZK2pcGpQCqgnyA0%3D&se=1627011497";
+    //         SharedAccessSignature sr=KieDevices.azure-devices.net%2Fdevices%2FOximetria_1&sig=yUoup9BXDuRGgCx2vC0r0z%2FDXmoy4CUDpjUXyujTDcg%3D&se=1595473928
+
+ Serial.println("prueba no :8"); 
+
+ 
+ Serial.println("mqtt_server:"+mqtt_server);  
+  Serial.println("mqtt_port:"+mqtt_port);  
+     Serial.println("clientId:"+clientId);    
+    Serial.println("urlUser: "+urlUser);    
+    Serial.println("mqtt_pass: "+mqtt_pass);
+    Serial.println("inboundstr: "+inboundstr);
+    
+
+    if (client.connect(clientId.c_str(),urlUser.c_str(),mqtt_pass.c_str())) {
+      Serial.println("Conexión a MQTT exitosa!!!");    
+      client.subscribe(outBoundStr.c_str()); 
       client.subscribe(inboundstr.c_str());
     }else{
       Serial.println("Falló la conexión ");
@@ -128,20 +145,12 @@ void EnviarLectura (String bmp, String spo  )
   Serial.println(WiFi.localIP());
 
 
-   if(client.connected()==false){    
+   if(client.connected()==false){   
+     Serial.print("Reconectando"); 
     reconnect("ReiniciandoConexion");
   }
 
-  client.loop();
-
-  
-
-
+  client.loop(); 
   //envia los parametros al servidor 
-    client.publish("devices/Oximetria_1/messages/events/Oximetria", (bmp+":"+spo).c_str());
-
-    
-
-
-
+    client.publish(("devices/"+mqtt_user+"/messages/events/Oximetria").c_str(), (bmp+":"+spo).c_str());
 }
