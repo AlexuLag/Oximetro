@@ -4,24 +4,27 @@
 #include <Wire.h>
 #include <PubSubClient.h>
 #include <wificlientsecure.h>
-#include "MAX30100_PulseOximeter.h"
 
+#include "MAX30105.h"
+#include "spo2_algorithm.h"
 #include "Adafruit_GFX.h"
 #include "OakOLED.h"
 #include "Oximetro.Config.h"
 
-
-
-
-
-
-#define REPORTING_PERIOD_MS     1000
-uint32_t tsLastReport = 0;
 OakOLED oled;
-PulseOximeter pox;
+MAX30105 particleSensor;
 
- float heartRate;
- uint8_t spO2;
+#define MAX_BRIGHTNESS 255
+
+uint32_t irBuffer[100]; 
+uint32_t redBuffer[100];  
+int32_t bufferLength; 
+int32_t spo2=0; 
+int8_t validSPO2; 
+int32_t heartRate=0; 
+int8_t validHeartRate; 
+float BPM=0;
+float SPO2=0; 
 
 //imagen en display
 const unsigned char bitmap [] PROGMEM =
@@ -36,35 +39,30 @@ const unsigned char bitmap [] PROGMEM =
 };
 
 
-//cuando detecta un objeto o beat en el sensor
-void onBeatDetected()
-{  
-  oled.drawBitmap( 60, 20, bitmap, 28, 28, 1);
-  oled.display();
+  //oled.drawBitmap( 60, 20, bitmap, 28, 28, 1);
+  //oled.display();
 
- 
    
-}
 
-void setup() {
+void setup() 
+{
   Serial.begin(115200);
   oled.begin();
+
   oled.clearDisplay();
   oled.setTextSize(1);
   oled.setTextColor(1);
-  oled.setCursor(0, 0);
-  oled.println("Cargando parametros de conexion...");
+  oled.setCursor(1, 0);
+  oled.println("Cargando parametros    de conexion...");
   Serial.println("Cargando parametros de conexion...");
   oled.display();
   InicializaSistema();
   InicializaEnvio();  
-    
 
-
-  
-  if (!pox.begin())
+//Inicia comunicación I2C del sensor 
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) 
   {
-    Serial.println("Fallo inicializacion del sensor comuniquese con soporte");
+    Serial.println(F("GY-MAX30102 No se encuentra. Verificar alimentación o conexiones."));
     oled.clearDisplay();
     oled.setTextSize(2);
     oled.setTextColor(1);
@@ -72,78 +70,166 @@ void setup() {
     oled.println("Fallo inicializacion del sensor comuniquese con soporte");
     oled.display();
     for (;;);
+    while (1);
   }
-  else
-  {
     oled.clearDisplay();
     oled.setTextSize(2);
-    oled.setTextColor(2);
+    oled.setTextColor(1);
     oled.setCursor(0, 0);
-    oled.display(); 
+    oled.println("Coloque su dedo...");
+    oled.display();
+//Configuración para el MAX30102
+  byte ledBrightness = 0xFF; //Options: 0=Off to 255=50mA
+  byte sampleAverage = 1; //Options: 1, 2, 4, 8, 16, 32
+  byte ledMode = 2; //Options: 1 = Red only, 2 = Red + IR, 3 = Red + IR + Green
+  byte sampleRate = 3200; //Options: 50, 100, 200, 400, 800, 1000, 1600, 3200
+  int pulseWidth = 411; //Options: 69, 118, 215, 411
+  int adcRange = 16384; //Options: 2048, 4096, 8192, 16384
 
-     Serial.println("Max iniciado"); 
-    pox.setIRLedCurrent(MAX30100_LED_CURR_7_6MA); 
-    pox.setOnBeatDetectedCallback(onBeatDetected);
-  }
+  particleSensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange); 
+}
+    
+
   
-  }
-
-
-
 void loop()
 {
-  
+//Almacena 100 muestras en 4 segundos
+ bufferLength = 100; 
 
-  pox.update();
- 
-  if (millis() - tsLastReport > REPORTING_PERIOD_MS)
+  //Lee las primeras 100 muestras y determine el rango de señal
+  for (byte i = 0 ; i < bufferLength ; i++)
   {
-     heartRate=0;
-     spO2=0; 
+    while (particleSensor.available() == false) 
+      particleSensor.check(); //Verifica el sensor para obtener nuevos datos
+
+    redBuffer[i] = particleSensor.getRed();
+    irBuffer[i] = particleSensor.getIR();
+    particleSensor.nextSample(); 
+  }
+
+  //calcular la frecuencia cardíaca y la SpO2 después de las primeras 100 muestras (primeros 4 segundos de muestras)
+  maxim_heart_rate_and_oxygen_saturation(irBuffer, bufferLength, redBuffer, &spo2, &validSPO2, &heartRate, &validHeartRate);
+
+  while (1)
+  {
+    //volcar los primeros 25 conjuntos de muestras en la memoria y desplazar los últimos 75 conjuntos de muestras a la parte superior
+    for (byte i = 25; i < 100; i++)
+    {
+      redBuffer[i - 25] = redBuffer[i];
+      irBuffer[i - 25] = irBuffer[i];
+    }
+    //tome 25 juegos de muestras antes de calcular la frecuencia cardíaca..
+    for (byte i = 75; i < 100; i++)
+    {
+      while (particleSensor.available() == false) 
+        particleSensor.check(); 
+
+      redBuffer[i] = particleSensor.getRed();
+      irBuffer[i] = particleSensor.getIR();
+      particleSensor.nextSample(); 
+
+        if (validHeartRate > 0 && validSPO2 > 0)
+        {
+             
+          oled.clearDisplay();
+          oled.setTextSize(1);
+          oled.setTextColor(1);
+          oled.setCursor(0, 16);
+          oled.println(heartRate);
+          
+          oled.setTextSize(1);
+          oled.setTextColor(1);
+          oled.setCursor(0, 0);
+          oled.println("BPM");
+          
+
+          oled.setTextSize(1);
+          oled.setTextColor(1);
+          oled.setCursor(0, 30);
+          oled.println("SpO2");
+          
+
+          oled.setTextSize(1);
+          oled.setTextColor(1);
+          oled.setCursor(0, 45);
+          oled.println(spo2);
+          oled.display();
+
+          Serial.print ("BPM: ");
+          Serial.println (heartRate);
+          Serial.print ("SpO2: ");
+          Serial.println (spo2);
+
+                      
+        }
+        else
+        {
+          oled.clearDisplay();
+          oled.setTextSize(1);
+          oled.setTextColor(1);
+          oled.setCursor(0, 16);
+          oled.println(0);
+
+          oled.setTextSize(1);
+          oled.setTextColor(1);
+          oled.setCursor(0, 0);
+          oled.println("BPM");
+
+          oled.setTextSize(1);
+          oled.setTextColor(1);
+          oled.setCursor(0, 30);
+          oled.println("SpO2");
+
+          oled.setTextSize(1);
+          oled.setTextColor(1);
+          oled.setCursor(0, 45);
+          oled.println(0);
+          oled.display();
+        }
+        
+    }
+    if (heartRate > 20 && heartRate < 200 )
+    {
+       BPM = (heartRate);
+    }
+    else
+    {
+      BPM = 0;
+    }
+    
+    if (spo2 > 70 && spo2 < 100) 
+    {
+      SPO2 = (spo2);
+    }
+    else
+    {
+      SPO2 = 0;
+    }
+    
+    if (BPM != 0 && SPO2 != 0)
+    {
+       EnviarLectura( String(BPM,2), String(SPO2));
+       Serial.print("Ritmo Cardiaco:");
+       Serial.print(BPM);
+       Serial.print("bpm / Sat. Oxigeno:");
+       Serial.print(SPO2);
+       Serial.println("%");
+       delay (500);
+    }
+    //Recalcular valores 
+    maxim_heart_rate_and_oxygen_saturation(irBuffer, bufferLength, redBuffer, &spo2, &validSPO2, &heartRate, &validHeartRate);
+  
+  
+  }
+}
 
 
-   heartRate= pox.getHeartRate();
-   spO2= pox.getSpO2();
-
-    Serial.print("Ritmo Cardiaco:");
-    Serial.print(pox.getHeartRate());
-    Serial.print("bpm / Sat. Oxigeno:");
-    Serial.print(pox.getSpO2());
-    Serial.println("%");
-
-    oled.clearDisplay();
-    oled.setTextSize(1);
-    oled.setTextColor(1);
-    oled.setCursor(0, 16);
-    oled.println(heartRate);
-
-    oled.setTextSize(1);
-    oled.setTextColor(1);
-    oled.setCursor(0, 0);
-    oled.println("PPM");
-
-    oled.setTextSize(1);
-    oled.setTextColor(1);
-    oled.setCursor(0, 30);
-    oled.println("SpO2");
-
-    oled.setTextSize(1);
-    oled.setTextColor(1);
-    oled.setCursor(0, 45);
-    oled.println(spO2);
-    oled.display();
-    tsLastReport = millis();
-
-     if(heartRate!=0 && spO2!=0)
-      EnviarLectura( String(heartRate,2), String(spO2));
-  heartRate=0;
-  spO2=0; 
 
 
 
    
-  }
+  
  
  
 
-}
+
